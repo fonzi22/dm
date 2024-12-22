@@ -1,0 +1,9 @@
+streamlit
+pandas
+matplotlib
+seaborn
+plotly
+numpy
+scikit-learn==1.2.2
+deep_translator
+google-generativeai
