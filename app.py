@@ -1,5 +1,6 @@
 import pandas as pd
 import joblib
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import streamlit as st
@@ -159,17 +160,30 @@ def truncate_text(text, max_length=200):
     """Truncate long text with ellipsis"""
     max_length = max(max_length, len(str(text)))
     return text[:max_length] + '...' if text and len(str(text)) > max_length else text
-
 @st.cache_data
-def load_salary_models(df, model="Linear Regression"):
+def load_salary_models(df, model="Linear Regression", transformation="None"):
     """Load the trained salary prediction models"""
     model = "ln" if model == "Linear Regression" else "rf"
-    min_salary_model = joblib.load(f"./models/{model}_min.pkl")
-    max_salary_model = joblib.load(f"./models/{model}_max.pkl")
-    one_hot_encoder = joblib.load("./models/ohe.pkl")
-    multilabel_binarizer = joblib.load("./models/mlb.pkl")
+    if transformation == "None":
+        transformation = "none"
+    elif transformation == "Log":
+        transformation = "log"
+    else:
+        transformation = "boxcox"
+    min_salary_model = joblib.load(f"./models/{model}_min_salary_{transformation}.pkl")
+    max_salary_model = joblib.load(f"./models/{model}_max_salary_{transformation}.pkl")
+    if model == "ln" and transformation == "none":
+        one_hot_encoder = joblib.load("./models/ohe.pkl")
+        multilabel_binarizer = joblib.load("./models/mlb.pkl")
+    else:
+        one_hot_encoder = joblib.load("./models/ohe_new.pkl")
+        multilabel_binarizer = joblib.load("./models/mlb_new.pkl")
+    min_pt, max_pt = None, None
+    if transformation == "boxcox":
+        min_pt = joblib.load("./models/min_pt.pkl")
+        max_pt = joblib.load("./models/max_pt.pkl")
     salary_df = df[(df['min_salary'] > 0) & (df['max_salary'] > 0)].drop(['Job ID', 'Posted Date', 'Job Position'], axis=1)
-    return salary_df, min_salary_model, max_salary_model, one_hot_encoder, multilabel_binarizer
+    return salary_df, min_salary_model, max_salary_model, one_hot_encoder, multilabel_binarizer, min_pt, max_pt
 
 def get_tags_for_category(df, category):
     """Get available tags for a specific job category"""
@@ -377,10 +391,13 @@ def main():
 
     with tab6:
         st.subheader("💰 Salary Prediction")
-        
-        model = st.selectbox("Choose Model", ["Linear Regression", "Random Forest"])
+        col1, col2 = st.columns(2)
+        with col1:
+            model = st.selectbox("Choose Model", ["Linear Regression", "Random Forest"])
+        with col2:
+            transformation = st.selectbox("Transformation method", ["None", "Log", "Boxcox"])
         # Load the models
-        salary_df, min_salary_model, max_salary_model, one_hot_encoder, multilabel_binarizer = load_salary_models(df, model)
+        salary_df, min_salary_model, max_salary_model, one_hot_encoder, multilabel_binarizer, min_pt, max_pt = load_salary_models(df, model, transformation)
         
         if None in (min_salary_model, max_salary_model, one_hot_encoder, multilabel_binarizer):
             st.error("Unable to load salary prediction models. Please check if model files exist.")
@@ -433,6 +450,12 @@ def main():
                 # Make predictions
                 min_salary_pred = min_salary_model.predict(input_df)[0]
                 max_salary_pred = max_salary_model.predict(input_df)[0]
+                if transformation == "Log":
+                    min_salary_pred = np.exp(min_salary_pred)
+                    max_salary_pred = np.exp(max_salary_pred)
+                elif transformation == "Boxcox":
+                    min_salary_pred = min_pt.inverse_transform(np.array([[min_salary_pred]]))[0][0]
+                    max_salary_pred = max_pt.inverse_transform(np.array([[max_salary_pred]]))[0][0]
                 if min_salary_pred > max_salary_pred:
                     min_salary_pred = max_salary_pred
                 
